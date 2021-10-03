@@ -1,0 +1,125 @@
+USE [CRM]
+GO
+/****** Object:  StoredProcedure [dbo].[proc_RepTargets_InsertTarget]    Script Date: 2021/10/03 4:14:43 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+ALTER PROC [dbo].[proc_RepTargets_InsertTarget]
+(
+	@targetType		INT,
+	@UserID		    INT,
+	@FileName		NVARCHAR(MAX)
+)
+AS
+BEGIN
+
+	IF OBJECT_ID('tempdb..##tmp_RepTargets') IS NOT NULL DROP TABLE ##tmp_RepTargets
+
+	CREATE TABLE ##tmp_RepTargets (
+		RepName		VARCHAR(500),
+		RepCode		VARCHAR(10),
+		Branch		VARCHAR(10),
+		[Year]		INT,
+		July		DECIMAL(18, 2),
+		August		DECIMAL(18, 2),
+		September	DECIMAL(18, 2),
+		October		DECIMAL(18, 2),
+		November	DECIMAL(18, 2),
+		December	DECIMAL(18, 2),
+		January		DECIMAL(18, 2),
+		February	DECIMAL(18, 2),
+		March		DECIMAL(18, 2),
+		April		DECIMAL(18, 2),
+		May			DECIMAL(18, 2),
+		June		DECIMAL(18, 2),
+		Total		DECIMAL(18, 2)
+	);
+
+	DECLARE @tblTargets TABLE 
+	(
+		ActualRepID		INT,
+		RepName			VARCHAR(1000),
+		RepCode			VARCHAR(10),
+		Branch			VARCHAR(500),
+		BranchID		INT,
+		FinancialYear	INT,
+		[MonthName]		VARCHAR(50),
+		[Target]		DECIMAL(18, 2),
+		FinancialMonth	INT
+	)
+
+	DECLARE @Sql NVARCHAR(MAX)
+	SET @Sql =  ' INSERT INTO ##tmp_RepTargets ' +
+			' SELECT * ' +
+			' FROM OPENROWSET(''Microsoft.ACE.OLEDB.12.0'', ' +
+			' ''Excel 12.0; HDR=YES; Database='+ @FileName + ';'' ,' +
+			' ''SELECT* FROM [Targets$A1:Z]'')' 
+
+	EXEC sp_executesql @Sql
+
+
+	ALTER TABLE ##tmp_RepTargets ADD 
+		ActualRepID		INT, 
+		BranchID		INT
+
+	DECLARE @FinancialYear	INT = (SELECT DISTINCT [Year] FROM ##tmp_RepTargets)
+
+	UPDATE ##tmp_RepTargets SET BranchID = b.BranchID
+	FROM ##tmp_RepTargets t
+	inner join TritonSecurity.dbo.branches b on b.BranchName = t.Branch
+
+	UPDATE ##tmp_RepTargets SET ActualRepID = b.RepCodeID
+	FROM ##tmp_RepTargets t
+	INNER JOIN CRM..FWRepMaps b on b.FWCode = t.RepCode
+
+	-- Unpivot the data into rows
+	INSERT INTO @tblTargets
+		SELECT ActualRepID, RepName, RepCode, Branch, BranchID, [Year], [Month], [Target], NULL
+		FROM ##tmp_RepTargets
+		UNPIVOT
+		(
+			[Target]
+			FOR [Month] IN (July, August, September, October, November, December, January, February, March, April, May, June)
+		) unpiv
+
+	-- Set the Financial Month
+	UPDATE @tblTargets SET FinancialMonth = D.Financial_Month_Number
+	FROM @tblTargets T
+	INNER JOIN Dates D ON D.Month_Name = T.[MonthName]
+
+
+	IF (@targetType = 625)
+	BEGIN
+		DELETE FROM RepTargetsNewBiz
+		WHERE FinancialMonth IN (SELECT DISTINCT FinancialMonth FROM @tblTargets)
+		AND FinancialYear = @FinancialYear
+
+		INSERT INTO CRM..RepTargetsNewBiz(RevRepCode, [Target], FinancialMonth, FinancialYear, ActualRepID, BranchID, CreatedOn, CreatedByUserID)
+		SELECT RepCode, [Target], FinancialMonth,FinancialYear, ActualRepID, BranchID, GETDATE(), @UserID
+		FROM @tblTargets
+
+	END
+	IF (@targetType = 626)
+	BEGIN
+		DELETE FROM RepTargetsExBiz 
+		WHERE FinancialMonth IN (SELECT DISTINCT FinancialMonth FROM @tblTargets)
+		AND FinancialYear = @FinancialYear
+
+		INSERT INTO CRM..RepTargetsExBiz(RevRepCode, [Target], FinancialMonth, FinancialYear, ActualRepID, BranchID, CreatedOn, CreatedByUserID)
+			SELECT RepCode, [Target], FinancialMonth,FinancialYear, ActualRepID, BranchID, GETDATE(), @UserID
+			FROM @tblTargets
+	END
+	IF (@targetType = 628)
+	BEGIN
+		DELETE FROM RepTargetsTransBiz 
+		WHERE FinancialMonth IN (SELECT DISTINCT FinancialMonth FROM @tblTargets)
+		AND FinancialYear = @FinancialYear
+
+			INSERT INTO CRM..RepTargetsTransBiz(RevRepCode, [Target], FinancialMonth, FinancialYear, ActualRepID, BranchID, CreatedOn, CreatedByUserID)
+			SELECT RepCode, [Target], FinancialMonth,FinancialYear, ActualRepID, BranchID, GETDATE(), @UserID
+			FROM @tblTargets
+
+	END
+	DROP TABLE ##tmp_RepTargets
+END
