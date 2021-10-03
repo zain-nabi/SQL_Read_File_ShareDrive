@@ -1,0 +1,83 @@
+USE [CRM]
+GO
+/****** Object:  StoredProcedure [dbo].[proc_RepTargets_ByRep_Select]    Script Date: 2021/10/03 4:12:01 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+-- =============================================
+-- Author:		Shaneil Ramnath
+-- Create date: 2021-09-23
+-- Description:	This stored procedure returns the targets broken down per branch and rep
+-- =============================================
+ALTER PROCEDURE [dbo].[proc_RepTargets_ByRep_Select]
+    @FinancialYear	INT,
+    @RepCode		VARCHAR(10),
+	@TargetType		INT
+AS
+BEGIN
+	-- SET NOCOUNT ON added to prevent extra result sets from
+	-- interfering with SELECT statements.
+	SET NOCOUNT ON;
+
+	DECLARE @tmp_RepTargets TABLE
+	(
+		RevRepCode		VARCHAR (50),
+		[Target]		DECIMAL (18, 2),
+		FinancialMonth	INT,
+		FinancialYear	INT,
+		ActualRepID		INT,
+		BranchID		INT
+	)
+
+	IF (@TargetType = 625)
+	BEGIN
+		INSERT INTO @tmp_RepTargets
+			SELECT RevRepCode, [Target], FinancialMonth, FinancialYear, ActualRepID, BranchID
+			FROM RepTargetsNewBiz
+			WHERE FinancialYear = @FinancialYear
+			AND DeletedByUserID IS NULL
+	END
+	IF (@TargetType = 626)
+	BEGIN
+		INSERT INTO @tmp_RepTargets
+			SELECT RevRepCode, [Target], FinancialMonth, FinancialYear, ActualRepID, BranchID
+			FROM RepTargetsExBiz
+			WHERE FinancialYear = @FinancialYear
+			AND DeletedByUserID IS NULL
+	END
+	IF (@TargetType = 628)
+	BEGIN
+		INSERT INTO @tmp_RepTargets
+			SELECT RevRepCode, [Target], FinancialMonth, FinancialYear, ActualRepID, BranchID
+			FROM RepTargetsTransBiz
+			WHERE FinancialYear = @FinancialYear
+			AND DeletedByUserID IS NULL
+	END
+			SELECT DISTINCT RevRepCode, ISNULL(CC.BranchName, R.AlternateBranchCode) AS BranchName, LeaveDisplayName, O.CostCentreID AS BranchID,
+				MAX(CASE WHEN RT.FinancialMonth = 1 THEN ISNULL(RT.[Target], 0) END) AS Jul,
+				MAX(CASE WHEN RT.FinancialMonth = 2 THEN ISNULL(RT.[Target], 0) END) AS Aug,
+				MAX(CASE WHEN RT.FinancialMonth = 3 THEN ISNULL(RT.[Target], 0) END) AS Sep,
+				MAX(CASE WHEN RT.FinancialMonth = 4 THEN ISNULL(RT.[Target], 0) END) AS Oct,
+				MAX(CASE WHEN RT.FinancialMonth = 5 THEN ISNULL(RT.[Target], 0) END) AS Nov,
+				MAX(CASE WHEN RT.FinancialMonth = 6 THEN ISNULL(RT.[Target], 0) END) AS [Dec],
+				MAX(CASE WHEN RT.FinancialMonth = 7 THEN ISNULL(RT.[Target], 0) END) AS Jan,
+				MAX(CASE WHEN RT.FinancialMonth = 8 THEN ISNULL(RT.[Target], 0) END) AS Feb,
+				MAX(CASE WHEN RT.FinancialMonth = 9 THEN ISNULL(RT.[Target], 0) END) AS Mar,
+				MAX(CASE WHEN RT.FinancialMonth = 10 THEN ISNULL(RT.[Target], 0) END) AS Apr,
+				MAX(CASE WHEN RT.FinancialMonth = 11 THEN ISNULL(RT.[Target], 0) END) AS May,
+				MAX(CASE WHEN RT.FinancialMonth = 12 THEN ISNULL(RT.[Target], 0) END) AS Jun,
+				SUM(RT.Target) TOTAL,				
+				E.EmployeeID
+				FROM FWRepMaps FW
+				LEFT JOIN RepCodes R ON FW.RepCodeID = R.RepCodeID
+				LEFT JOIN LeaveManagement.dbo.employees E ON E.CurrentEmployeeCode = R.RepCode
+				LEFT JOIN @tmp_RepTargets RT ON RT.RevRepCode = FW.FWCode
+				LEFT JOIN LeaveManagement.dbo.orgOrganogram O ON O.EmployeeID = E.EmployeeID
+				LEFT JOIN TritonSecurity.dbo.CostCentres CC ON CC.CostCentreID = RT.BranchID
+			WHERE FinancialYear = @FinancialYear
+			AND FW.FWCode = @RepCode
+			GROUP BY RevRepCode, CC.BranchName, R.AlternateBranchCode, LeaveDisplayName, O.CostCentreID, E.EmployeeID
+			ORDER BY RevRepCode
+
+END
