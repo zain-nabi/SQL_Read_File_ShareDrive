@@ -1,0 +1,30 @@
+USE [CRM]
+GO
+/****** Object:  StoredProcedure [dbo].[proc_RepTargetsNewBiz_CheckIfRepTargetsNewBizExist]    Script Date: 2021/10/03 4:14:04 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+
+
+ALTER PROCEDURE [dbo].[proc_RepTargetsNewBiz_CheckIfRepTargetsNewBizExist] 
+	@RevRepCode				VARCHAR(50),
+	@FinancialYear			INT,
+	@BranchID				INT
+AS 
+
+BEGIN 
+	DECLARE 
+	@RepTargetsNewBizExists				BIT = 0
+	
+	IF EXISTS (SELECT 
+					RTN.RevRepCode
+			   FROM CRM.dbo.RepTargetsNewBiz RTN 
+			   WHERE RTN.RevRepCode = @RevRepCode AND RTN.FinancialYear = @FinancialYear AND RTN.BranchID = @BranchID)
+    BEGIN 
+        SET @RepTargetsNewBizExists	 = 1 
+    END 
+
+    SELECT @RepTargetsNewBizExists AS [RevRepCode]
+END
+
